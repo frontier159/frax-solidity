@@ -32,3 +32,40 @@ Frax is the first fractional-algorithmic stablecoin protocol. Frax is open-sourc
 ## Running tests
 cd ./src/hardhat
 npx hardhat test ./test/FraxSwap/fraxswap-twamm-test.js
+
+## Frontier Updates
+
+The existing readme doesn't give many clues about setup, and the tests didn't work for me out of the box.
+
+I upgraded such that it:
+
+* Uses typescript
+* Uses yarn
+
+```bash
+nvm use
+# NB: "@poanet/solidity-flattener": "^3.0.7"  only works with node v16 
+# which wasn't picked up in npm...so --ignore-engines
+yarn install --ignore-engines
+
+# Generate typechain/typescript
+cd src/hardhat
+npx hardhat --tsconfig ../../tsconfig.json typechain
+cd ..
+yarn tsc
+
+# Setup the dotenv
+cp SAMPLE.env .env
+# Update .env so INFURA_PROJECT_ID equals your project key. You can signup for free (rate limited).
+
+# Also not ideal that the ./src/hardhat/hardhat.config.ts isn't in the root directory...can't use 'yarn hardhat'
+# doesn't look like it can be configured?
+
+# Crank up a forked mainnet
+cd src/hardhat
+npx hardhat --tsconfig ../../tsconfig.json node --fork https://mainnet.infura.io/v3/<INFURA_PROJECT_ID>
+
+# In a separate terminal
+cd src/hardhat
+npx hardhat --tsconfig ../../tsconfig.json run scripts/unifiedFarm.ts --network localhost
+```

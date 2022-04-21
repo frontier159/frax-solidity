@@ -7,6 +7,7 @@ src/hardhat/cache/*
 src/hardhat/cache/*/*
 src/hardhat/cache/*/*/*
 src/hardhat/cache/*/*/*/*
+src/hardhat/typechain
 
 package-lock.json
 
