@@ -269,22 +269,101 @@ contract FraxUnifiedFarm_ERC20 is FraxUnifiedFarmTemplate {
 
     // ------ STAKING ------
 
-    function _getStake(address staker_address, bytes32 kek_id) internal view returns (LockedStake memory locked_stake, uint256 arr_idx) {
+    // Provided as a helper for clients for kek_id => arr_idx, 
+    // and for backwards compat functions which take kek_id only.
+    function getLockedStakeArrIndex(address staker_address, bytes32 kek_id) public view returns (uint256) {
         for (uint256 i = 0; i < lockedStakes[staker_address].length; i++){ 
             if (kek_id == lockedStakes[staker_address][i].kek_id){
-                locked_stake = lockedStakes[staker_address][i];
-                arr_idx = i;
-                break;
+                require(lockedStakes[staker_address][i].kek_id == kek_id, "Stake not found");
+                return i;
             }
         }
+        revert("Stake not found");
+    }
+
+    function _getStake(address staker_address, bytes32 kek_id, uint256 arr_idx) internal view returns (LockedStake memory locked_stake) {
+        locked_stake = lockedStakes[staker_address][arr_idx];
         require(locked_stake.kek_id == kek_id, "Stake not found");
-        
     }
 
     // Add additional LPs to an existing locked stake
-    function lockAdditional(bytes32 kek_id, uint256 addl_liq) updateRewardAndBalance(msg.sender, true) public {
-        // Get the stake and its index
-        (LockedStake memory thisStake, uint256 theArrayIndex) = _getStake(msg.sender, kek_id);
+    //
+    // @deprecated -- idea in the new version is to pass in the arr_idx (handled off-chain) 
+    //                and avoid an on-chain lockedStakes arr iteration.
+    //
+    // In original form, it actually iterated over lockedStakes 3x times.
+    //   1. In the updateRewardAndBalance modifier (which calls calcCurCombinedWeight)
+    //   2. Within _getStake (now moved to be outside, in getLockedStakeArrIndex())
+    //   3. _updateRewardAndBalance is called again.
+    // So if lockedStakes is a large array then it would be gassy.
+    //
+    //
+    // For discussion: Do we need to keep this older version (on-chain arr_idx lookup)?
+    //                 Is overload ok, or better to have a v2?
+    function lockAdditional(bytes32 kek_id, uint256 addl_liq) public {
+        // For backwards compat - look up the array idx first
+        uint256 arr_idx = getLockedStakeArrIndex(msg.sender, kek_id);
+        lockAdditional(kek_id, arr_idx, addl_liq);
+    }
+
+    /**
+    Dependency Analysis for updateRewardAndBalance() usage...
+
+    updateRewardAndBalance():
+      Read-only:
+        gaugeControllers
+        rewardDistributors[i]
+        rewardsDuration
+        rewardTokens[i]
+        _total_liquidity_locked
+        stakingToken
+        frax_is_token0
+        veFXS
+        vefxs_max_multiplier
+        vefxs_boost_scale_factor
+        MULTIPLIER_PRECISION
+        _locked_liquidity
+        lockedStakes[i]
+        lastRewardClaimTime
+        userRewardsPerTokenPaid[account][i]
+        
+      Write:
+        last_gauge_relative_weights[i]
+        last_gauge_time_totals[i]
+        periodFinish
+        rewardsPerTokenStored[i]
+        lastUpdateTime
+        fraxPerLPStored
+        rewardRatesManual[1]   (aave aFRAX only)
+        rewards[account][i]
+        userRewardsPerTokenPaid[account][i]
+        _vefxsMultiplierStored[account]
+        _total_combined_weight
+        _combined_weights[account]
+    
+    lockAdditional() dep analysis:
+      Read-only:
+        stakingToken
+        valid_vefxs_proxies
+        staker_designated_proxies
+    
+      Write:
+        lockedStakes
+        _total_liquidity_locked
+        _locked_liquidity
+        proxy_lp_balances
+    */
+
+    // Add additional LPs to an existing locked stake.
+    //
+    // _updateRewardAndBalance is called twice - before (with period sync) and after (no sync)
+    // Question: Is this to make sure the rewardsPerTokenStored and other vars for a past reward period is calc'd using the existing lockedStakes
+    //           (ie prior to this new liquidity being added)? 
+    //           Not super obvious to me.
+    function lockAdditional(bytes32 kek_id, uint256 arr_idx, uint256 addl_liq) updateRewardAndBalance(msg.sender, true) public {
+        // Get the stake. Verifies the expected kek_id matches the stake at arr_idx.
+        // NB: arr_idx can be rugged as the items in lockedStakes[staker_address] vector are pop()'d in _withdrawLocked.
+        LockedStake memory thisStake = _getStake(msg.sender, kek_id, arr_idx);
 
         // Calculate the new amount
         uint256 new_amt = thisStake.liquidity + addl_liq;
@@ -296,7 +375,7 @@ contract FraxUnifiedFarm_ERC20 is FraxUnifiedFarmTemplate {
         TransferHelper.safeTransferFrom(address(stakingToken), msg.sender, address(this), addl_liq);
 
         // Update the stake
-        lockedStakes[msg.sender][theArrayIndex] = LockedStake(
+        lockedStakes[msg.sender][arr_idx] = LockedStake(
             kek_id,
             thisStake.start_timestamp,
             new_amt,
@@ -314,6 +393,43 @@ contract FraxUnifiedFarm_ERC20 is FraxUnifiedFarmTemplate {
 
         // Need to call to update the combined weights
         _updateRewardAndBalance(msg.sender, false);
+    }
+
+    // Extend the lock period on an existing stake by secs
+    function extendLock(bytes32 kek_id, uint256 arr_idx, uint256 secs) updateRewardAndBalance(msg.sender, true) public returns (bytes32) {
+        require(stakingPaused == false || valid_migrators[msg.sender] == true, "Staking paused or in migration");
+
+        // Get the stake
+        LockedStake memory thisStake = _getStake(msg.sender, kek_id, arr_idx);
+
+        // The start_timestamp is not currently used in weight calcs. Leaving as original lock start.
+        uint256 newStartTimestamp = thisStake.start_timestamp;
+        uint256 newEndingTimestamp = thisStake.ending_timestamp + secs;
+        uint256 newLockDurationSecs = newEndingTimestamp - newStartTimestamp;
+        require(newLockDurationSecs >= lock_time_min, "Minimum stake time not met");
+        require(newLockDurationSecs <= lock_time_for_max_multiplier, "Trying to lock for too long");
+
+        // Updated kek_id
+        bytes32 new_kek_id = keccak256(abi.encodePacked(msg.sender, thisStake.start_timestamp, thisStake.liquidity, _locked_liquidity[msg.sender]));
+
+        // Increased lockMultiplier
+        uint256 lock_multiplier = lockMultiplier(newLockDurationSecs);
+
+        // Update the stake in place
+        lockedStakes[msg.sender][arr_idx] = LockedStake(
+            new_kek_id,
+            newStartTimestamp,
+            thisStake.liquidity,
+            newEndingTimestamp,
+            lock_multiplier
+        );
+        
+        // Need to call again to make sure everything is correct
+        _updateRewardAndBalance(msg.sender, true);
+
+        emit StakeLocked(msg.sender, thisStake.liquidity, newLockDurationSecs, new_kek_id, msg.sender);
+
+        return new_kek_id;
     }
 
     // Two different stake functions are needed because of delegateCall and msg.sender issues (important for migration)
@@ -372,7 +488,17 @@ contract FraxUnifiedFarm_ERC20 is FraxUnifiedFarmTemplate {
     // Two different withdrawLocked functions are needed because of delegateCall and msg.sender issues (important for migration)
     function withdrawLocked(bytes32 kek_id, address destination_address) nonReentrant external returns (uint256) {
         require(withdrawalsPaused == false, "Withdrawals paused");
-        return _withdrawLocked(msg.sender, destination_address, kek_id);
+
+        // Backwards compat - lookup the index of the stake item first.
+        uint256 arr_idx = getLockedStakeArrIndex(msg.sender, kek_id);
+        return _withdrawLocked(msg.sender, destination_address, kek_id, arr_idx);
+    }
+
+    // Overloaded to take the arr_idx such that it can be computed off-chain.
+    // Two different withdrawLocked functions are needed because of delegateCall and msg.sender issues (important for migration)
+    function withdrawLocked(bytes32 kek_id, uint256 arr_idx, address destination_address) nonReentrant external returns (uint256) {
+        require(withdrawalsPaused == false, "Withdrawals paused");
+        return _withdrawLocked(msg.sender, destination_address, kek_id, arr_idx);
     }
 
     // No withdrawer == msg.sender check needed since this is only internally callable and the checks are done in the wrapper
@@ -380,17 +506,23 @@ contract FraxUnifiedFarm_ERC20 is FraxUnifiedFarmTemplate {
     function _withdrawLocked(
         address staker_address,
         address destination_address,
-        bytes32 kek_id
+        bytes32 kek_id,
+        uint256 arr_idx
     ) internal returns (uint256) {
         // Collect rewards first and then update the balances
         _getReward(staker_address, destination_address, true);
 
         // Get the stake and its index
-        (LockedStake memory thisStake, uint256 theArrayIndex) = _getStake(staker_address, kek_id);
+        LockedStake memory thisStake = _getStake(staker_address, kek_id, arr_idx);
         require(block.timestamp >= thisStake.ending_timestamp || stakesUnlocked == true || valid_migrators[msg.sender] == true, "Stake is still locked!");
         uint256 liquidity = thisStake.liquidity;
 
         if (liquidity > 0) {
+            // Should also add a check that _total_liquidity_locked|_locked_liquidity doesn't go negative?
+            // Perhaps overkill if no other bugs.
+            require(_total_liquidity_locked - liquidity > 0, "Withdrawing more liquidity than locked");
+            require(_locked_liquidity[staker_address] - liquidity > 0, "Withdrawing more liquidity than locked");
+
             // Update liquidities
             _total_liquidity_locked = _total_liquidity_locked - liquidity;
             _locked_liquidity[staker_address] = _locked_liquidity[staker_address] - liquidity;
@@ -400,7 +532,10 @@ contract FraxUnifiedFarm_ERC20 is FraxUnifiedFarmTemplate {
             }
 
             // Remove the stake from the array
-            delete lockedStakes[staker_address][theArrayIndex];
+            // Move the last element into this slot, then pop the last element to reclaim storage.
+            // NB: This changes the order, clients will have to handle the arr_idx change.
+            lockedStakes[staker_address][arr_idx] = lockedStakes[staker_address][lockedStakes[staker_address].length - 1];
+            lockedStakes[staker_address].pop();
 
             // Give the tokens to the destination_address
             // Should throw if insufficient balance
@@ -431,7 +566,8 @@ contract FraxUnifiedFarm_ERC20 is FraxUnifiedFarmTemplate {
     // Used for migrations
     function migrator_withdraw_locked(address staker_address, bytes32 kek_id) external isMigrating {
         require(staker_allowed_migrators[staker_address][msg.sender] && valid_migrators[msg.sender], "Mig. invalid or unapproved");
-        _withdrawLocked(staker_address, msg.sender, kek_id);
+        uint256 arr_idx = getLockedStakeArrIndex(msg.sender, kek_id);
+        _withdrawLocked(staker_address, msg.sender, kek_id, arr_idx);
     }
     
     /* ========== RESTRICTED FUNCTIONS - Owner or timelock only ========== */

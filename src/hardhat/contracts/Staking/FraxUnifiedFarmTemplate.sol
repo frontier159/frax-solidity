@@ -470,13 +470,11 @@ contract FraxUnifiedFarmTemplate is Owned, ReentrancyGuard {
             // Calculate the earnings
             uint256[] memory earned_arr = earned(account);
 
-            // Update the rewards array
             for (uint256 i = 0; i < earned_arr.length; i++){ 
+                // Update the rewards array
                 rewards[account][i] = earned_arr[i];
-            }
 
-            // Update the rewards paid array
-            for (uint256 i = 0; i < earned_arr.length; i++){ 
+                // Update the rewards paid array (same dimensions)
                 userRewardsPerTokenPaid[account][i] = rewardsPerTokenStored[i];
             }
         }
@@ -611,14 +609,15 @@ contract FraxUnifiedFarmTemplate is Owned, ReentrancyGuard {
         // Sync the gauge weight, if applicable
         sync_gauge_weights(false);
 
-        // Update the fraxPerLPStored
-        fraxPerLPStored = fraxPerLPToken();
-
         if (block.timestamp >= periodFinish) {
             retroCatchUp();
         }
         else {
+            // Update the rewards and time
             _updateStoredRewardsAndTime();
+
+            // Update the fraxPerLPStored
+            fraxPerLPStored = fraxPerLPToken();
         }
     }
 
