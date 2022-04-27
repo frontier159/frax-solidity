@@ -56,16 +56,18 @@ yarn tsc
 
 # Setup the dotenv
 cp SAMPLE.env .env
-# Update .env so INFURA_PROJECT_ID equals your project key. You can signup for free (rate limited).
+# Update .env so ALCHEMY_API_KEY equals your Alchemy project key. You can signup for free (rate limited).
 
 # Also not ideal that the ./src/hardhat/hardhat.config.ts isn't in the root directory...can't use 'yarn hardhat'
 # doesn't look like it can be configured?
 
 # Crank up a forked mainnet
+# This is setup in hardhat.config.ts to fork mainnet, via the Alchemy provider. 
+# equiv to adding arg: --fork https://eth-mainnet.alchemyapi.io/v2/<ALCHEMY_API_KEY>
 cd src/hardhat
-npx hardhat --tsconfig ../../tsconfig.json node --fork https://mainnet.infura.io/v3/<INFURA_PROJECT_ID>
+npx hardhat --tsconfig ../../tsconfig.json node 
 
-# In a separate terminal
+# In a separate terminal, now point it to localhost (a fork of mainnet)
 cd src/hardhat
 npx hardhat --tsconfig ../../tsconfig.json run scripts/unifiedFarm.ts --network localhost
 ```

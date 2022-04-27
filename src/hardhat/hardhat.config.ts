@@ -41,7 +41,7 @@ module.exports = {
 				// url: `${process.env.AVALANCHE_FORKING_NETWORK_ENDPOINT}`, // Avalanche
 				// url: `${process.env.BOBA_NETWORK_ENDPOINT}`, // Boba
 				// url: `${process.env.BSC_NETWORK_ENDPOINT}`, // BSC
-				url: `${process.env.ETHEREUM_NETWORK_ENDPOINT}${process.env.INFURA_PROJECT_ID}`, //
+				url: `${process.env.ETHEREUM_NETWORK_ENDPOINT}${process.env.ALCHEMY_API_KEY}`, //
 				// url: `${process.env.EVMOS_NETWORK_ENDPOINT}`, // Evmos
 				// url: `https://eth-mainnet.alchemyapi.io/v2/${process.env.ALCHEMY_KEY}` // Ethereum (alternate)
 				// url: `${process.env.FANTOM_FORKING_NETWORK_ENDPOINT}`, // Fantom
@@ -109,7 +109,7 @@ module.exports = {
 		// 	gasMultiplier: 1.2
 		// },
 		ethereum: {
-			url:`${process.env.ETHEREUM_NETWORK_ENDPOINT}${process.env.INFURA_PROJECT_ID}`,
+			url:`${process.env.ETHEREUM_NETWORK_ENDPOINT}${process.env.ALCHEMY_API_KEY}`,
 			accounts: {
 				mnemonic: process.env.MNEMONIC_PHRASE
 			},
@@ -219,7 +219,7 @@ module.exports = {
 		// 	gasMultiplier: 1.2
 		// },
 		rinkeby: {
-			url:`https://rinkeby.infura.io/v3/${process.env.INFURA_PROJECT_ID}`,
+			url:`https://rinkeby.infura.io/v3/${process.env.INFURA_API_KEY}`,
 			accounts: {
 				mnemonic: process.env.MNEMONIC_PHRASE
 			},
