@@ -409,15 +409,15 @@ contract FraxUnifiedFarm_ERC20 is FraxUnifiedFarmTemplate {
         require(newLockDurationSecs >= lock_time_min, "Minimum stake time not met");
         require(newLockDurationSecs <= lock_time_for_max_multiplier, "Trying to lock for too long");
 
-        // Updated kek_id
-        bytes32 new_kek_id = keccak256(abi.encodePacked(msg.sender, thisStake.start_timestamp, thisStake.liquidity, _locked_liquidity[msg.sender]));
-
+        // Question: Are we ok to use the original kek_id, or should it be creating a new one?
+        //bytes32 new_kek_id = keccak256(abi.encodePacked(msg.sender, newStartTimestamp, thisStake.liquidity, _locked_liquidity[msg.sender]));
+        
         // Increased lockMultiplier
         uint256 lock_multiplier = lockMultiplier(newLockDurationSecs);
 
         // Update the stake in place
         lockedStakes[msg.sender][arr_idx] = LockedStake(
-            new_kek_id,
+            kek_id, // new_kek_id,
             newStartTimestamp,
             thisStake.liquidity,
             newEndingTimestamp,
