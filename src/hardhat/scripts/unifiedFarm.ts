@@ -60,25 +60,63 @@ async function main() {
     console.log(await token.calcCurCombinedWeight(sampleAddr));
 }
 
+/**
+Questions for FRAX (Sam/Travis):
 
-// Questions:
+* Proposal to:
+  * Gas reduction: Update functions which take kek_id (to lookup the relevant stake struct), to also take an arr_idx. 
+    * Removes a loop over a (potentially large) lockedStakes array, eg if a user adds many stakes.
+  * Add extendLock(kek_id, arr_idx, secs) function to extend the duration of an existing lock.
+    * This extension would apply to the whole reward period. 
+    * ie if called 1 day before the current reward period ends, the new(larger) lock multiplier would apply for that period.
+  * Gas reduction: On withdrawLocked, actually pop off/remove that stake array element in storage rather than using delete
+                   (which sets to default struct only)
+
+* I couldn't get the existing tests to run:
+npx hardhat test ./test/FraxUnifiedFarm_ERC20-Tests.js
+
+  1) Contract: FraxUnifiedFarm_ERC20-Tests
+       "before each" hook for "Main test":
+     NomicLabsHardhatPluginError: Trying to get deployed instance of UniswapPairOracle_FXS_WETH, but none was set.
+
+This was from:
+oracle_instance_FXS_WETH = await UniswapPairOracle_FXS_WETH.deployed();
+
+Any tips? What .env is best to run tests?
+
+* Size is still under 24kb according to truffle, but getting quite close now:
+20.563 ==> 23.072
+ 
+* When updating function signatures, do you follow a particular convention?
+  * Do we need to maintain the old signature to make UI/UX migration easier?
+  * Overloaded function vs a 'v2' function
+  * etc.
+  
+eg   lockAdditional(bytes32 kek_id, uint256 addl_liq) 
+     ==>
+     lockAdditional(bytes32 kek_id, uint256 arr_idx, uint256 addl_liq)
+
+* What do we need to consider for migrations? 
+  * Would FRAX handle this or STAX
+  * What can we do to help
+  * Any notes/info you could send through on how it works would be great.
+
+* I see these contracts have recently been updated for veFPIS/LendingAMO in master branch. 
+  * Are these changes stable yet?
+  * Are there plans for future migrations of existing contracts for this?
+  * I see the max lock time has been reduced to just 2 days now?
+     uint256 public lock_time_for_max_multiplier = 2 * 86400; // 2 days
+*/
+
+// Other tech questions/etc.
+
 // * Can we re-deploy the contract, but clone state from an older version (ie migrate the state)?
-// * Operationally how would we track state/idx_id (rather than looping through to match kek_id)?
-//        Would the idx_id be invalid when this is called? delete lockedStakes[staker_address][theArrayIndex];
-//        Or pass in both as a hint...and then would need to have some process so client can re-fetch current indexes.
-// * _withdrawLocked requires either the stake period to have ended (normal), or 
-//       stakesUnlocked (emergency - onlyByOwnGov) or 
-//       valid_migrators (onlyByOwnGov)
-//    which doesn't really seem plausible? How would we use this?
+//   eg fork current prod, and redeploy an existing v1 state to my new v2 for testing?
+// 
 
 // Sample lockedStakes:
 // [
 //   [
-//     '0xcafed64df36f8aa9b465fde882b2c9f2a6eca8d17468fd801c57fb471338bc44',
-//     BigNumber { value: "1648930060" },
-//     BigNumber { value: "6081720914093912792550" },
-//     BigNumber { value: "1649016460" },
-//     BigNumber { value: "1001826484018264840" },
 //     kek_id: '0xcafed64df36f8aa9b465fde882b2c9f2a6eca8d17468fd801c57fb471338bc44',
 //     start_timestamp: BigNumber { value: "1648930060" },
 //     liquidity: BigNumber { value: "6081720914093912792550" },
@@ -86,11 +124,6 @@ async function main() {
 //     lock_multiplier: BigNumber { value: "1001826484018264840" }
 //   ],
 //   [
-//     '0xe60e33d921202d45e6026454ddc4a80ab517ca3ea5d9cc9201c8d0ebb970e2e6',
-//     BigNumber { value: "1649040525" },
-//     BigNumber { value: "8648335221246315394617" },
-//     BigNumber { value: "1649126925" },
-//     BigNumber { value: "1001826484018264840" },
 //     kek_id: '0xe60e33d921202d45e6026454ddc4a80ab517ca3ea5d9cc9201c8d0ebb970e2e6',
 //     start_timestamp: BigNumber { value: "1649040525" },
 //     liquidity: BigNumber { value: "8648335221246315394617" },
@@ -98,11 +131,6 @@ async function main() {
 //     lock_multiplier: BigNumber { value: "1001826484018264840" }
 //   ],
 //   [
-//     '0xe0e16ed06e502bde8a43cc530229ec126c05dc518cb66142e05d334719a26ddb',
-//     BigNumber { value: "1649378060" },
-//     BigNumber { value: "8982576664633711812168" },
-//     BigNumber { value: "1649464460" },
-//     BigNumber { value: "1001826484018264840" },
 //     kek_id: '0xe0e16ed06e502bde8a43cc530229ec126c05dc518cb66142e05d334719a26ddb',
 //     start_timestamp: BigNumber { value: "1649378060" },
 //     liquidity: BigNumber { value: "8982576664633711812168" },
@@ -110,11 +138,6 @@ async function main() {
 //     lock_multiplier: BigNumber { value: "1001826484018264840" }
 //   ],
 //   [
-//     '0x51d6fc44ecbe1e3dd2da5a15d935dbea6a92e5855dfdebb75282c157d9158702',
-//     BigNumber { value: "1649425018" },
-//     BigNumber { value: "8509822245749271657222" },
-//     BigNumber { value: "1649511418" },
-//     BigNumber { value: "1001826484018264840" },
 //     kek_id: '0x51d6fc44ecbe1e3dd2da5a15d935dbea6a92e5855dfdebb75282c157d9158702',
 //     start_timestamp: BigNumber { value: "1649425018" },
 //     liquidity: BigNumber { value: "8509822245749271657222" },
@@ -122,11 +145,6 @@ async function main() {
 //     lock_multiplier: BigNumber { value: "1001826484018264840" }
 //   ],
 //   [
-//     '0x35e9bfa3d93a2b844de14d9d0828288d2464804dc943d59399d2a4c31f4ff1fe',
-//     BigNumber { value: "1650199611" },
-//     BigNumber { value: "28705991835199336910502" },
-//     BigNumber { value: "1650286011" },
-//     BigNumber { value: "1001826484018264840" },
 //     kek_id: '0x35e9bfa3d93a2b844de14d9d0828288d2464804dc943d59399d2a4c31f4ff1fe',
 //     start_timestamp: BigNumber { value: "1650199611" },
 //     liquidity: BigNumber { value: "28705991835199336910502" },
@@ -134,11 +152,6 @@ async function main() {
 //     lock_multiplier: BigNumber { value: "1001826484018264840" }
 //   ],
 //   [
-//     '0x318f7823b386728c38188ec47b0de92ff48af32558a21c8f3112d109d4d68463',
-//     BigNumber { value: "1650496343" },
-//     BigNumber { value: "55376132951420997581797" },
-//     BigNumber { value: "1650582743" },
-//     BigNumber { value: "1001826484018264840" },
 //     kek_id: '0x318f7823b386728c38188ec47b0de92ff48af32558a21c8f3112d109d4d68463',
 //     start_timestamp: BigNumber { value: "1650496343" },
 //     liquidity: BigNumber { value: "55376132951420997581797" },
@@ -149,9 +162,6 @@ async function main() {
 //
 // Sample calcCurCombinedWeight
 // [
-//   BigNumber { value: "116516959008654910673680" },
-//   BigNumber { value: "0" },
-//   BigNumber { value: "116516957627744116068110" },
 //   old_combined_weight: BigNumber { value: "116516959008654910673680" },
 //   new_vefxs_multiplier: BigNumber { value: "0" },
 //   new_combined_weight: BigNumber { value: "116516957627744116068110" }
