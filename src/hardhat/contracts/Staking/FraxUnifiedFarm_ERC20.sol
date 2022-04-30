@@ -272,9 +272,8 @@ contract FraxUnifiedFarm_ERC20 is FraxUnifiedFarmTemplate {
     // Provided as a helper for clients for kek_id => arr_idx, 
     // and for backwards compat functions which take kek_id only.
     function getLockedStakeArrIndex(address staker_address, bytes32 kek_id) public view returns (uint256) {
-        for (uint256 i = 0; i < lockedStakes[staker_address].length; i++){ 
-            if (kek_id == lockedStakes[staker_address][i].kek_id){
-                require(lockedStakes[staker_address][i].kek_id == kek_id, "Stake not found");
+        for (uint256 i = 0; i < lockedStakes[staker_address].length; i++) { 
+            if (kek_id == lockedStakes[staker_address][i].kek_id) {
                 return i;
             }
         }
@@ -395,30 +394,31 @@ contract FraxUnifiedFarm_ERC20 is FraxUnifiedFarmTemplate {
         _updateRewardAndBalance(msg.sender, false);
     }
 
-    // Extend the lock period on an existing stake by secs
-    function extendLock(bytes32 kek_id, uint256 arr_idx, uint256 secs) updateRewardAndBalance(msg.sender, true) public returns (bytes32) {
+    // Extend the lock period on an existing locked stake by secs
+    function extendLock(bytes32 kek_id, uint256 arr_idx, uint256 secs) updateRewardAndBalance(msg.sender, true) external returns (bytes32) {
         require(stakingPaused == false || valid_migrators[msg.sender] == true, "Staking paused or in migration");
 
         // Get the stake
         LockedStake memory thisStake = _getStake(msg.sender, kek_id, arr_idx);
 
-        // The start_timestamp is not currently used in weight calcs. Leaving as original lock start.
-        uint256 newStartTimestamp = thisStake.start_timestamp;
+        // Can only extend a stake which is still locked.
+        require(thisStake.ending_timestamp > block.timestamp, "Stake is not locked");
+
         uint256 newEndingTimestamp = thisStake.ending_timestamp + secs;
-        uint256 newLockDurationSecs = newEndingTimestamp - newStartTimestamp;
+        uint256 newLockDurationSecs;
+        unchecked {
+            newLockDurationSecs = newEndingTimestamp - block.timestamp;
+        }
         require(newLockDurationSecs >= lock_time_min, "Minimum stake time not met");
         require(newLockDurationSecs <= lock_time_for_max_multiplier, "Trying to lock for too long");
 
-        // Question: Are we ok to use the original kek_id, or should it be creating a new one?
-        //bytes32 new_kek_id = keccak256(abi.encodePacked(msg.sender, newStartTimestamp, thisStake.liquidity, _locked_liquidity[msg.sender]));
-        
         // Increased lockMultiplier
         uint256 lock_multiplier = lockMultiplier(newLockDurationSecs);
 
         // Update the stake in place
         lockedStakes[msg.sender][arr_idx] = LockedStake(
-            kek_id, // new_kek_id,
-            newStartTimestamp,
+            kek_id,
+            thisStake.start_timestamp,  // Not used in weight calcs, can remain as the original lock start.
             thisStake.liquidity,
             newEndingTimestamp,
             lock_multiplier
@@ -518,11 +518,6 @@ contract FraxUnifiedFarm_ERC20 is FraxUnifiedFarmTemplate {
         uint256 liquidity = thisStake.liquidity;
 
         if (liquidity > 0) {
-            // Should also add a check that _total_liquidity_locked|_locked_liquidity doesn't go negative?
-            // Perhaps overkill if no other bugs.
-            require(_total_liquidity_locked - liquidity > 0, "Withdrawing more liquidity than locked");
-            require(_locked_liquidity[staker_address] - liquidity > 0, "Withdrawing more liquidity than locked");
-
             // Update liquidities
             _total_liquidity_locked = _total_liquidity_locked - liquidity;
             _locked_liquidity[staker_address] = _locked_liquidity[staker_address] - liquidity;
